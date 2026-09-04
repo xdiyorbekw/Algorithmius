@@ -6,6 +6,7 @@ import { requireAdmin } from '@/lib/auth';
 import { supportedLanguages } from '@/lib/constants';
 import type { Locale } from '@/i18n/routing';
 import { algorithmInputSchema, type AlgorithmInput } from '@/lib/validation';
+import type { SupportedLanguage } from '@/lib/constants';
 
 export type AlgorithmActionState = {
   ok: boolean;
@@ -55,11 +56,34 @@ async function replaceCodes(
   algorithmId: string,
   codes: AlgorithmInput['codes'],
 ) {
-  const { error } = await supabase.rpc('replace_algorithm_codes', {
-    p_algorithm_id: algorithmId,
-    p_codes: codes,
-  });
-  if (error) throw new Error('ALGORITHM_CODE_PERSIST_FAILED');
+  const rows = Object.entries(codes)
+    .filter(([, code]) => code.trim().length > 0)
+    .map(([language, code]) => ({
+      algorithm_id: algorithmId,
+      language: language as SupportedLanguage,
+      code: code.trim(),
+    }));
+
+  const { error: deleteError } = await supabase
+    .from('algorithm_code_versions')
+    .delete()
+    .eq('algorithm_id', algorithmId);
+
+  if (deleteError) {
+    console.error(deleteError);
+    throw new Error('ALGORITHM_CODE_PERSIST_FAILED');
+  }
+
+  if (rows.length === 0) return;
+
+  const { error: insertError } = await supabase
+    .from('algorithm_code_versions')
+    .insert(rows);
+
+  if (insertError) {
+    console.error(insertError);
+    throw new Error('ALGORITHM_CODE_PERSIST_FAILED');
+  }
 }
 
 async function writeAlgorithm(
